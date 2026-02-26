@@ -1,0 +1,484 @@
+// @api-1.0
+// Name: Storyflow Converter
+// Description: Convert between Sequential Wildcards and Storyflow Pipeline JSON.
+// Author: Gemini
+
+// =============================================================================
+// UTILITIES (Adapted from Sequential Wildcards)
+// =============================================================================
+
+function extractBalancedBraces(str, start) {
+    if (str[start] !== '{') return null;
+    let curlyDepth = 0;
+    let squareDepth = 0;
+    let i = start;
+    for (; i < str.length; i++) {
+        const char = str[i];
+        if (char === '{') curlyDepth++;
+        else if (char === '}') {
+            curlyDepth--;
+            if (curlyDepth === 0 && squareDepth === 0) {
+                return { content: str.substring(start, i + 1), end: i };
+            }
+        }
+        else if (char === '[') squareDepth++;
+        else if (char === ']') squareDepth--;
+    }
+    return null;
+}
+
+class Context {
+    constructor(wildcards = new Map(), configs = new Map(), activeConfig = {}) {
+        this.wildcards = wildcards;
+        this.configs = configs;
+        this.activeConfig = activeConfig;
+    }
+    clone() {
+        return new Context(new Map(this.wildcards), new Map(this.configs), JSON.parse(JSON.stringify(this.activeConfig)));
+    }
+}
+
+// =============================================================================
+// WILDCARD -> STORYFLOW LOGIC
+// =============================================================================
+
+function parseDefinitions(preamble, context) {
+    let cleanPreamble = preamble;
+    const wildcardDefRegex = /@(\w+)\s*:=\s*\{/g;
+    let match;
+    const ranges = [];
+
+    while ((match = wildcardDefRegex.exec(preamble)) !== null) {
+        const name = match[1];
+        const extracted = extractBalancedBraces(preamble, match.index + match[0].length - 1);
+        if (extracted) {
+            const inner = extracted.content.slice(1, -1);
+            const options = inner.split('|').map(s => s.trim()).filter(s => s.length > 0);
+            context.wildcards.set(name, options);
+            ranges.push({ start: match.index, end: extracted.end + 1 });
+        }
+    }
+
+    const configDefRegex = /#(\w+)\s*:=\s*\{/g;
+    while ((match = configDefRegex.exec(preamble)) !== null) {
+        const name = match[1];
+        const extracted = extractBalancedBraces(preamble, match.index + match[0].length - 1);
+        if (extracted) {
+            try {
+                const configObj = JSON.parse(extracted.content);
+                context.configs.set(name, configObj);
+                ranges.push({ start: match.index, end: extracted.end + 1 });
+            } catch (e) {
+                console.log(`Warning: Failed to parse config #${name}`);
+            }
+        }
+    }
+
+    ranges.sort((a, b) => b.start - a.start);
+    for (const range of ranges) {
+        cleanPreamble = cleanPreamble.substring(0, range.start) + cleanPreamble.substring(range.end);
+    }
+    return cleanPreamble.trim();
+}
+
+function parsePhotoshootSequence(input) {
+    input = input.trim();
+    if (input.startsWith('[') && input.endsWith(']')) {
+        input = input.substring(1, input.length - 1);
+    }
+    const shots = [];
+    let currentShot = "";
+    let braceDepth = 0;
+    for (let i = 0; i < input.length; i++) {
+        const char = input[i];
+        if (char === '{' || char === '[') braceDepth++;
+        else if (char === '}' || char === ']') braceDepth--;
+
+        if (char === '|' && braceDepth === 0) {
+            if (currentShot.trim()) shots.push(currentShot.trim());
+            currentShot = "";
+        } else {
+            currentShot += char;
+        }
+    }
+    if (currentShot.trim()) shots.push(currentShot.trim());
+    return shots;
+}
+
+function expandWildcards(text, context) {
+    let result = text;
+    let iterations = 0;
+    const maxIterations = 50;
+
+    while (iterations < maxIterations) {
+        let changed = false;
+        
+        // 1. Configs
+        result = result.replace(/#(\w+)(?=\s|$|[,\.\!\?])/g, (match, name) => {
+            const configObj = context.configs.get(name);
+            if (configObj) {
+                Object.assign(context.activeConfig, configObj);
+                changed = true;
+                return ''; 
+            }
+            return match;
+        });
+
+        // 2. Inline Wildcards
+        result = result.replace(/\{([^{}]+)\}/g, (match, optionsStr) => {
+            const options = optionsStr.split('|').map(s => s.trim()).filter(s => s.length > 0);
+            if (options.length > 0) {
+                changed = true;
+                return options[Math.floor(Math.random() * options.length)];
+            }
+            return match;
+        });
+
+        // 3. Named Wildcards
+        result = result.replace(/@(\w+)/g, (match, name) => {
+            const options = context.wildcards.get(name);
+            if (options && options.length > 0) {
+                changed = true;
+                return options[Math.floor(Math.random() * options.length)];
+            }
+            return match;
+        });
+
+        if (!changed) break;
+        iterations++;
+    }
+    return result.replace(/\s+/g, ' ').trim();
+}
+
+function convertWildcardToStoryflow(input, batchCount) {
+    const context = new Context();
+    let preamble = input;
+    let sequenceBlock = "";
+    
+    // Attempt to identify sequence block
+    // Simplified: Find last [ ... ] that isn't inside another structure
+    const start = input.indexOf('[');
+    const end = input.lastIndexOf(']');
+    if (start !== -1 && end > start) {
+        // Very basic check, might need robust scanner if multiple brackets exist
+        // For now assume standard format: Definitions then [ Sequence ]
+        // We will scan for the *Sequence* bracket specifically (containing |) or just take the main outer one if ambiguous.
+        // Let's rely on the parser:
+        preamble = input.substring(0, start).trim();
+        sequenceBlock = input.substring(start, end + 1).trim();
+    } else {
+        // No sequence, treat whole input as one prompt for batching
+        sequenceBlock = `[ ${input} ]`; // Hack to treat as single shot
+        preamble = "";
+    }
+
+    parseDefinitions(preamble, context);
+    const shots = parsePhotoshootSequence(sequenceBlock);
+    
+    const instructions = [];
+    
+    // Initial Config (if any global config was in preamble... actually our parser strips it)
+    // In Wildcard script, configs are usually inside the prompts or definitions.
+    // We'll define a base config instruction if the Context has an active config after preamble? 
+    // (Preamble usually just DEFINEs, doesn't APPLY. Applying happens in shots.)
+
+    for (const shot of shots) {
+        for (let i = 0; i < batchCount; i++) {
+            const shotContext = context.clone();
+            const prompt = expandWildcards(shot, shotContext);
+            
+            // If the shot modified the config, emit a config instruction
+            if (Object.keys(shotContext.activeConfig).length > 0) {
+                instructions.push({ "config": shotContext.activeConfig });
+            }
+            
+            instructions.push({ "prompt": prompt });
+        }
+    }
+    
+    instructions.push({ "end": true });
+    return JSON.stringify(instructions, null, 2);
+}
+
+function convertWildcardToStoryflowProject(input) {
+    const context = new Context();
+    let preamble = input;
+    let sequenceBlock = "";
+    
+    // 1. Identify Sequence
+    const start = input.indexOf('[');
+    const end = input.lastIndexOf(']');
+    if (start !== -1 && end > start) {
+        preamble = input.substring(0, start).trim();
+        sequenceBlock = input.substring(start, end + 1).trim();
+    } else {
+        sequenceBlock = `[ ${input} ]`;
+        preamble = "";
+    }
+
+    // 2. Parse Definitions (Populate context)
+    parseDefinitions(preamble, context);
+    
+    // 3. Prepare Project Structure
+    const project = {
+        "projectName": "ImportedWildcards",
+        "promptTriggers": {},
+        "wildcardShortcuts": {},
+        "configShortcuts": {},
+        "poseJSONShortcuts": {}, // Not parsed yet in this script version
+        "items": []
+    };
+
+    // 4. Populate Triggers & Wildcards from Context
+    for (const [name, options] of context.wildcards.entries()) {
+        const valueString = options.join(" | ");
+        if (options.length > 1) {
+            // It's a Wildcard ($)
+            project.wildcardShortcuts[`$${name}`] = valueString;
+        } else {
+            // It's a Trigger (@)
+            project.promptTriggers[`@${name}`] = valueString;
+        }
+    }
+
+    // 5. Populate Configs
+    for (const [name, configObj] of context.configs.entries()) {
+        // Stringify the config object for the shortcut value
+        // Note: Storyflow expects string values for shortcuts logic usually, 
+        // but let's check Example.json.
+        // Actually, configShortcuts keys are usually #name and value is the content.
+        // We'll store the inner JSON string.
+        project.configShortcuts[`#${name}`] = JSON.stringify(configObj);
+    }
+
+    // 6. Process Sequence Items
+    const shots = parsePhotoshootSequence(sequenceBlock);
+    
+    for (let shot of shots) {
+        // A. Extract Config Tags (#cfg) -> Create Config Item
+        // We need to find them, remove them from prompt, and add a config item BEFORE the prompt.
+        const configTags = [];
+        shot = shot.replace(/#(\w+)(?=\s|$|[,\.\!\?])/g, (match, name) => {
+            configTags.push(name);
+            return ""; // Remove from prompt string
+        });
+        
+        // Add Config Items
+        for (const cfgName of configTags) {
+            // If it's a known config, add a config item referring to it?
+            // Storyflow Editor Items: type "config", value "#name" or "{json}"
+            // If we have a shortcut defined, we can just use #name.
+            project.items.push({
+                "type": "config",
+                "value": `#${cfgName}`
+            });
+        }
+
+        // B. Remap Variable Names (@name -> $name if multi-option)
+        // We need to scan for @name usages.
+        // Regex to find @word
+        shot = shot.replace(/@(\w+)/g, (match, name) => {
+            const options = context.wildcards.get(name);
+            if (options && options.length > 1) {
+                // It's mapped to a wildcard now
+                return `$${name}`;
+            }
+            return match; // Keep as @name (Trigger)
+        });
+        
+        // C. Clean up and Add Prompt Item
+        shot = shot.replace(/\s+/g, ' ').trim();
+        project.items.push({
+            "type": "prompt",
+            "value": shot
+        });
+    }
+
+    return JSON.stringify(project, null, 2);
+}
+
+// =============================================================================
+// STORYFLOW -> WILDCARD LOGIC
+// =============================================================================
+
+function convertStoryflowToWildcard(jsonString) {
+    let instructions;
+    try {
+        instructions = JSON.parse(jsonString);
+    } catch (e) {
+        return "Error: Invalid JSON input.";
+    }
+
+    if (!Array.isArray(instructions)) return "Error: Input must be a JSON array.";
+
+    const configs = new Map(); // Hash -> Name
+    const lines = [];
+    let configCounter = 0;
+    
+    // Hash function for config objects
+    const hashConfig = (obj) => JSON.stringify(obj, Object.keys(obj).sort());
+
+    for (const item of instructions) {
+        if (item.prompt) {
+            lines.push(item.prompt);
+        } else if (item.config) {
+            const hash = hashConfig(item.config);
+            let configName;
+            
+            // Check if we've seen this config before
+            for (const [h, name] of configs.entries()) {
+                if (h === hash) {
+                    configName = name;
+                    break;
+                }
+            }
+            
+            if (!configName) {
+                configName = `config_${configCounter++}`;
+                configs.set(hash, configName);
+            }
+            
+            // Append config tag to the NEXT prompt (or previous? Protocol is [ shot1 | shot2 ])
+            // In Wildcard, config applies to the specific shot.
+            // In Storyflow, config sets state for SUBSEQUENT prompts.
+            // So we should append this config tag to the *next* prompt string we generate?
+            // Or essentially, the sequence is a list of shots. 
+            // If we have [Config] [Prompt], that creates a shot "Prompt #Config".
+            // If we have [ConfigA] [Prompt1] [Prompt2], both share ConfigA state?
+            // "Sequential Wildcards" resets scope per shot? 
+            // Re-reading `sequential-wildcards.js`: "Merge config into activeConfig... hasConfigChange... pipeline.run".
+            // It seems scopes are per-shot (Context cloned from base).
+            // Storyflow is stateful (linear execution).
+            // To emulate Storyflow (state persistence) in Wildcards (per-shot isolation),
+            // we might need to accumulate state. 
+            
+            // Complex case. Simplified approach:
+            // Just output the config definition and tag the line. The user might need to adjust manually if they rely on state persistence across multiple shots.
+            // BUT: We want to generate a valid sequence.
+            // Let's assume we just append `#configName` to the next prompt line found.
+           
+            // Store pending config to append to next prompt
+            lines.push({ isConfig: true, name: configName, obj: item.config });
+        }
+    }
+
+    // Generate Output
+    let output = "";
+    
+    // 1. Config Definitions
+    for (const [hash, name] of configs.entries()) {
+        const obj = JSON.parse(hash);
+        output += `#${name} := ${JSON.stringify(obj)}\n`;
+    }
+    
+    output += "\n";
+    
+    // 2. Sequence
+    output += "[ \n";
+    
+    let pendingConfigs = [];
+    const shotStrings = [];
+    
+    for (const line of lines) {
+        if (line.isConfig) {
+            pendingConfigs.push(line.name);
+        } else {
+            // It's a prompt
+            let shot = line;
+            if (pendingConfigs.length > 0) {
+                shot += " " + pendingConfigs.map(c => `#${c}`).join(" ");
+                // In Storyflow state persists. We only effectively apply the *latest* changes if we assume they are deltas.
+                // But Wildcard configs are usually deltas too. 
+                // However, in Wildcard script, context resets every shot.
+                // So if Prompt 1 has Config A, and Prompt 2 follows, Prompt 2 starts fresh.
+                // If Storyflow intended Prompt 2 to keep Config A, we must Repeat `#ConfigA` in Prompt 2.
+                // This suggests we need to track accumulated state.
+                // For now, let's just output essentially what was in the list.
+                // But wait, if we are just faithfully reproducing the list:
+                // [ ConfigA, Prompt1, Prompt2 ] -> [ Prompt1 #ConfigA | Prompt2 #ConfigA ] would be the correct semantic translation?
+                // Yes, if we want to preserve the *image generation parameters*.
+                
+                // Let's stick to a simpler 1-to-1: The output script is a linear sequence.
+                // If I put `#ConfigA` in result, it applies. 
+                // We will NOT try to cleverly persist state across the pipe `|` because that implies we know the user *wants* state persistence.
+                // Actually, `sequential-wildcards.js` lines 341-343: context is cloned from baseContext.
+                // So subsequent shots do NOT inherit from previous shots.
+                // So yes, we MUST repeat configs if we want to maintain state.
+                // But detecting what state needs maintaining is hard.
+                
+                // Let's go with: Attach *immediately preceding* configs to the prompt.
+                pendingConfigs = []; // Consume them.
+            }
+            shotStrings.push(shot);
+        }
+    }
+    
+    output += shotStrings.join(" |\n  ");
+    output += "\n]";
+    
+    return output;
+}
+
+// =============================================================================
+// UI & EXECUTION
+// =============================================================================
+
+const user_selection = requestFromUser("Storyflow Converter", "Convert", function() {
+    return [
+        this.section("Mode", "Enable to reverse direction (Storyflow -> Wildcard)", [
+            this.switch(false, "Storyflow -> Wildcard Mode")
+        ]),
+        this.section("Settings", "Wildcard -> Storyflow Options", [
+            this.switch(true, "Expand Wildcards (Pipeline JSON)"),
+            this.slider(1, this.slider.fractional(0), 1, 100, "Batch Count (Expansion)")
+        ]),
+        this.section("Input", "Paste your script/JSON here", [
+            this.textField("", "...", true, 400) // multiline, height
+        ])
+    ];
+});
+
+const isReverseMode = user_selection[0][0]; 
+const mode = isReverseMode ? "Storyflow -> Wildcard" : "Wildcard -> Storyflow";
+
+const expandWildcardsOption = user_selection[1][0];
+const batchCount = parseInt(user_selection[1][1]);
+const inputText = user_selection[2][0];
+
+let outputText = "";
+
+if (mode === "Wildcard -> Storyflow") {
+    if (expandWildcardsOption) {
+        console.log("Converting Wildcard Script to Pipeline JSON (Expanded)...");
+        try {
+            outputText = convertWildcardToStoryflow(inputText, batchCount);
+        } catch (e) {
+            outputText = "Error: " + e.message;
+        }
+    } else {
+        console.log("Converting Wildcard Script to Project JSON (No Expand)...");
+        try {
+            outputText = convertWildcardToStoryflowProject(inputText);
+        } catch (e) {
+            outputText = "Error: " + e.message;
+        }
+    }
+} else {
+    console.log("Converting Storyflow JSON to Wildcard Script...");
+    try {
+        outputText = convertStoryflowToWildcard(inputText);
+    } catch (e) {
+        outputText = "Error during conversion: " + e.message;
+        console.log(e);
+    }
+}
+
+// Show output
+const resultSelection = requestFromUser("Conversion Result", "Done", function() {
+    return [
+        this.section("Output", "Copy this result:", [
+            this.textField(outputText, outputText, true, 400)
+        ])
+    ];
+});
+
