@@ -1,0 +1,525 @@
+
+//@api-1.0
+// Ultra-Detailed Character Generator v3.7 (Debugged Skin Pass)
+// Features: Robust Config Cloning to prevent 'id' errors, SDXL Skin Pass, Weighted Solo Tags.
+
+// --- 1. DATA ARRAYS ---
+
+const promptStyles = ["Flux / Qwen (Natural Language)", "SDXL / SD1.5 (Tag Lists)"];
+
+const genders = ["Random", "Female", "Male", "Androgynous"];
+
+const nationalities = [
+    "Random", 
+    "Japanese with sharp, angular features", 
+    "Nigerian with deep, rich complexion", 
+    "Swedish with pale complexion and high cheekbones", 
+    "Brazilian with sun-kissed olive tones", 
+    "Indian with almond-shaped eyes", 
+    "Korean with soft facial contours", 
+    "Italian with expressive features", 
+    "Russian with strong jawline and pale skin", 
+    "French with chic, effortless features", 
+    "Egyptian with golden undertones", 
+    "German with structured, square jaw", 
+    "Thai with warm skin tones", 
+    "Native American with high cheekbones", 
+    "Ethiopian with elegant, statuesque features", 
+    "Irish with pale skin and freckles", 
+    "Scottish with rugged features", 
+    "Vietnamese with soft, youthful features", 
+    "Filipino with warm, tan complexion", 
+    "Spanish with defined brows and olive skin", 
+    "Inuit with rounded facial structure", 
+    "Mongolian with strong cheekbones", 
+    "Persian with deep set eyes", 
+    "Polynesian with strong, broad features", 
+    "Jamaican with radiant dark skin", 
+    "Pakistani with sharp, defined nose", 
+    "Ukrainian with fair skin and soft features", 
+    "Greek with classic, straight nose profile", 
+    "Somali with high forehead and fine features"
+];
+
+const ages = [
+    "Random", 
+    "Late Teens (18-19), youthful collagen-rich skin", 
+    "Young Adult (20s), fresh features", 
+    "Adult (30s), matured features", 
+    "Middle-Aged (40s-50s), visible laugh lines and character", 
+    "Elderly (60s+), deep wrinkles and textured skin", 
+    "Ancient, weathered skin with deep crevices"
+];
+
+const bodyShapes = [
+    "Random", 
+    "an hourglass figure with wide hips", 
+    "a pear-shaped silhouette", 
+    "an inverted triangle shape with broad shoulders", 
+    "a rectangle body shape", 
+    "an apple-shaped torso", 
+    "a broad-shouldered frame", 
+    "a long-torsoed build", 
+    "a short-torsoed, long-legged build", 
+    "a soft, round body shape", 
+    "a wiry, sinewy frame"
+];
+
+const bodyBuilds = [
+    "Random", 
+    "athletic and toned with visible muscle definition", 
+    "bodybuilder physique with vascularity", 
+    "slender and waif-like", 
+    "curvy and voluptuous with soft tissue", 
+    "centerfold model physique with perfect proportions", 
+    "chubby with soft, rounded features", 
+    "plus-sized and heavy", 
+    "skinny with visible collarbones", 
+    "lanky and tall", 
+    "petite and small", 
+    "average 'dad-bod' physique", 
+    "stocky and broad", 
+    "fit but with a soft layer of fat", 
+    "heavily muscled 'strongman' build"
+];
+
+const skinDetails = [
+    "Random", 
+    "pale porcelain skin with visible blue veins", 
+    "fair skin dusted with heavy freckles", 
+    "light tan skin with a smooth texture", 
+    "golden tan skin with sun damage", 
+    "olive skin with oily sheen", 
+    "medium brown skin with hyperpigmentation", 
+    "rich mahogany skin with glowing highlights", 
+    "deep dark chocolate skin with matte texture", 
+    "bronze skin with sweat droplets", 
+    "alabaster skin with redness around the nose", 
+    "rough weathered skin with large pores", 
+    "skin with vitiligo patches", 
+    "rosy ruddy complexion", 
+    "acne-scarred texture", 
+    "mature skin with sun spots"
+];
+
+const hairStyles = [
+    "Random", 
+    "long straight hair falling to the waist", 
+    "a short textured pixie cut", 
+    "a sharp asymmetrical bob cut", 
+    "a messy bun with loose strands", 
+    "a voluminous curly afro", 
+    "wavy shoulder-length hair with layers", 
+    "a completely bald shaved head", 
+    "long thick dreadlocks", 
+    "tight box braids", 
+    "a sleek high ponytail", 
+    "a punk mohawk with shaved sides", 
+    "hair slicked back with pomade", 
+    "a military buzz cut", 
+    "hair with curtain bangs and messy texture", 
+    "a mullet hairstyle", 
+    "finger waves vintage style"
+];
+
+const hairColors = [
+    "Random", 
+    "platinum blonde", "honey blonde", "chestnut brunette", "raven black", 
+    "fiery red", "ginger orange", "pastel pink", "neon electric blue", 
+    "silver grey", "salt and pepper", "dark auburn", "emerald green", "deep purple", 
+    "white with grey roots", "dyed split-color (black and white)"
+];
+
+const eyeColors = [
+    "Random", 
+    "piercing ice blue", "emerald green", "honey hazel", "dark chocolate brown", 
+    "midnight black", "stormy grey", "golden amber", "heterochromia (one blue, one brown)", 
+    "light violet", "pale grey"
+];
+
+const framing = [
+    "Random", 
+    "Extreme Close-up focusing on eyes and skin texture", 
+    "Close-up Headshot", 
+    "Portrait shot from shoulders up", 
+    "Medium Shot from waist up", 
+    "Cowboy Shot from knees up", 
+    "Full Body Shot showing shoes", 
+    "Wide Angle Environmental shot", 
+    "Dutch Angle close-up"
+];
+
+const angles = [
+    "Random", 
+    "Front facing view", 
+    "Side profile view", 
+    "Three-quarter turn view", 
+    "Back view looking over shoulder", 
+    "Low angle looking up at subject", 
+    "High angle looking down at subject", 
+    "Dutch angle tilt", 
+    "Dynamic action angle", 
+    "Overhead drone view"
+];
+
+const attireContexts = [
+    "Random", 
+    "Outdoors Winter (Thick wool coat, cashmere scarf, leather gloves)", 
+    "Outdoors Summer (White linen t-shirt, denim shorts, sunglasses)", 
+    "Indoors Casual (Oversized grey hoodie, cotton sweatpants)", 
+    "Female Office (Black formal mini skirt, white blouse half unbuttoned, black stockings)",
+    "Business Formal (Navy tailored suit, silk tie, crisp white shirt)", 
+    "Evening Gala (Floor-length satin gown, tuxedo)", 
+    "Ready for Bed (Silk pajamas, messy hair)", 
+    "Female Erotic (Silk fully fashioned stockings, nude, bustier)",
+    "Athletic Gym (Spandex leggings, sports bra, sweat)", 
+    "Swimwear (Bikini, swimming trunks, wet skin)", 
+    "Workwear (Grease-stained mechanic jumpsuit)", 
+    "Medical (Blue scrubs, stethoscope)", 
+    "Fantasy (Chainmail armor, leather tunic, cape)", 
+    "Sci-Fi (Tight spacesuit, glowing interface elements)", 
+    "Historical (Victorian lace dress / 3-piece tweed suit)", 
+    "Streetwear (Bomber jacket, graphic tee, sneakers)"
+];
+
+const expressions = [
+    "Random", 
+    "Neutral blank stare", 
+    "Warm welcoming smile", 
+    "Laughing hysterically with eyes closed", 
+    "Angry shouting with veins showing", 
+    "Seductive smirk with half-lidded eyes", 
+    "Crying with tear tracks on cheeks", 
+    "Shocked gasping mouth open", 
+    "Serious stoic intense gaze", 
+    "Exhausted yawning", 
+    "Suspicious squinting", 
+    "Bored rolling eyes", 
+    "Fearful wide eyes", 
+    "Disgusted curling lip", 
+    "Orgasmic, mouth open, eyes closed, joy and pleasure"
+];
+
+const styles = [
+    "Random", 
+    "Cinematic 8k Photography, Arri Alexa", 
+    "Studio Lighting Portrait, softbox lighting", 
+    "Candid Street Photography, 35mm film grain", 
+    "Vintage Polaroid style, flash photography", 
+    "Cyberpunk Neon aesthetic, blue and pink lighting", 
+    "Classical Oil Painting, visible brushstrokes", 
+    "Corporate Headshot, flat lighting", 
+    "High Fashion Editorial, dramatic shadows", 
+    "Gritty Noir Black and White, high contrast", 
+    "Ethereal Dreamy Glow, soft focus", 
+    "Double Exposure artistic style"
+];
+
+const celebrities = [
+    "None", "Random", 
+    "Angelina Jolie", "Brad Pitt", "Scarlett Johansson", "Leonardo DiCaprio", 
+    "Tom Cruise", "Charlize Theron", "Denzel Washington", "Meryl Streep", 
+    "George Clooney", "Julia Roberts", "Keanu Reeves", "Nicole Kidman", 
+    "Dolly Parton", "Kim Basinger", "Raquel Welch", "Marilyn Monroe", 
+    "Zendaya", "Timothée Chalamet", "Ana de Armas", "Henry Cavill", 
+    "Margot Robbie", "Michael B. Jordan", "Florence Pugh", "Jenna Ortega", 
+    "Pedro Pascal", "Sydney Sweeney", "Jason Momoa", "Gal Gadot", 
+    "Idris Elba", "Lupita Nyong'o", "Viola Davis", "Mahershala Ali", "Daniel Kaluuya", 
+    "Michelle Yeoh", "Gemma Chan", "Steven Yeun", "Song Kang-ho", "Lucy Liu", 
+    "Dev Patel", "Priyanka Chopra", "Riz Ahmed", "Oscar Isaac", "Salma Hayek", 
+    "Penélope Cruz", "Javier Bardem", "Zoe Saldana", "Tessa Thompson", "Halle Berry", "Nikka Monhaj",
+    "Anya Taylor-Joy", "Willem Dafoe", "Tilda Swinton", "Cillian Murphy", 
+    "Benedict Cumberbatch", "Adam Driver", "Rami Malek", "Mads Mikkelsen", 
+    "Steve Buscemi", "Ron Perlman", "Helena Bonham Carter", "Christina Hendricks",
+    "Morgan Freeman", "Helen Mirren", "Anthony Hopkins", "Samuel L. Jackson", 
+    "Patrick Stewart", "Ian McKellen", "Maggie Smith"
+];
+
+// --- UTILITY FUNCTIONS ---
+
+function getRandomItem(arr, startIndex) {
+    var start = (startIndex === undefined) ? 1 : startIndex;
+    var index = Math.floor(Math.random() * (arr.length - start)) + start;
+    return arr[index];
+}
+
+function resolveAttribute(selectedIndex, dataArray) {
+    if (selectedIndex > 0) {
+        return dataArray[selectedIndex];
+    }
+    return getRandomItem(dataArray, 1);
+}
+
+// Helper to determine weighted subject tag based on gender
+function getSubjectTag(genderString) {
+    if (genderString.includes("Female") || genderString.includes("Trans Femme")) return "(1woman:1.4), (solo:1.3)";
+    if (genderString.includes("Male") || genderString.includes("Trans Masc")) return "(1man:1.4), (solo:1.3)";
+    return "(1person:1.4), (solo:1.3)";
+}
+
+// --- UI GENERATION ---
+
+const config = requestFromUser("Ultra-Detail Character Gen v3.7", "Generate", function() {
+    return [
+        this.section("1. Physiology & Identity", "Define the biological traits.", [
+            this.menu(0, promptStyles), // 0
+            this.menu(0, genders), // 1
+            this.menu(0, nationalities), // 2
+            this.menu(0, ages), // 3
+            this.menu(0, skinDetails), // 4
+        ]),
+        this.section("2. Body & Figure", "Detailed morphology.", [
+            this.menu(0, bodyBuilds), // 0 (Section 2)
+            this.menu(0, bodyShapes), // 1
+        ]),
+        this.section("3. Head Details", "Hair, Eyes, and Face.", [
+            this.menu(0, hairStyles), // 0
+            this.menu(0, hairColors), // 1
+            this.menu(0, eyeColors), // 2
+            this.menu(0, celebrities), // 3 
+            this.menu(0, celebrities), // 4
+        ]),
+        this.section("4. Camera & Context", "How the shot is framed and dressed.", [
+            this.menu(0, framing), // 0
+            this.menu(0, angles), // 1
+            this.menu(0, attireContexts), // 2
+            this.menu(0, expressions), // 3
+            this.menu(0, styles), // 4
+        ]),
+        this.section("5. Output Control", "Portfolio settings.", [
+            this.slider(1, this.slider.fractional(0), 1, 50, "Batch Size"), // 0
+            this.switch(true, "Keep Character Constant"), // 1
+            this.textField("", "Extra Keywords", false) // 2
+        ]),
+        this.section("6. Skin Enhancement (SDXL)", "Optional 2nd pass for skin texture.", [
+            this.switch(false, "Run Img2Img Skin Pass"), // 0
+            this.slider(0.40, this.slider.percent, 0.2, 0.6, "Enhancement Strength") // 1
+        ])
+    ];
+});
+
+// --- INPUT PARSING ---
+
+const selections = {
+    promptLogic: config[0][0], // 0 = Flux/Natural, 1 = SDXL/Tags
+    gender: config[0][1],
+    nationality: config[0][2],
+    age: config[0][3],
+    skin: config[0][4],
+    build: config[1][0],
+    shape: config[1][1],
+    hairStyle: config[2][0],
+    hairColor: config[2][1],
+    eyes: config[2][2],
+    celebA: config[2][3],
+    celebB: config[2][4],
+    framing: config[3][0],
+    angle: config[3][1],
+    attire: config[3][2],
+    expression: config[3][3],
+    style: config[3][4],
+    batchCount: config[4][0],
+    keepConstant: config[4][1],
+    extraPrompt: config[4][2],
+    runSkinPass: config[5][0],
+    skinStrength: config[5][1]
+};
+
+// --- LOGIC FUNCTIONS ---
+
+function generateCharacterData() {
+    var data = {};
+    data.gender = resolveAttribute(selections.gender, genders);
+    data.nation = resolveAttribute(selections.nationality, nationalities);
+    data.age = resolveAttribute(selections.age, ages);
+    data.skin = resolveAttribute(selections.skin, skinDetails);
+    data.build = resolveAttribute(selections.build, bodyBuilds);
+    data.shape = resolveAttribute(selections.shape, bodyShapes);
+    data.hairS = resolveAttribute(selections.hairStyle, hairStyles);
+    data.hairC = resolveAttribute(selections.hairColor, hairColors);
+    data.eyes = resolveAttribute(selections.eyes, eyeColors);
+
+    // Celeb Logic
+    var celA = "";
+    if (selections.celebA === 1) celA = getRandomItem(celebrities, 2);
+    else if (selections.celebA > 1) celA = celebrities[selections.celebA];
+
+    var celB = "";
+    if (selections.celebB === 1) celB = getRandomItem(celebrities, 2);
+    else if (selections.celebB > 1) celB = celebrities[selections.celebB];
+
+    data.celebPrompt = "";
+    if (celA && celB && celA !== celB) data.celebPrompt = "blend of " + celA + " and " + celB;
+    else if (celA) data.celebPrompt = celA;
+    else if (celB) data.celebPrompt = celB;
+
+    return data;
+}
+
+function generateSceneContext() {
+    var data = {};
+    data.framing = resolveAttribute(selections.framing, framing);
+    data.angle = resolveAttribute(selections.angle, angles);
+    data.expression = resolveAttribute(selections.expression, expressions);
+    data.style = resolveAttribute(selections.style, styles);
+    data.attire = resolveAttribute(selections.attire, attireContexts);
+    return data;
+}
+
+// --- PROMPT CONSTRUCTORS ---
+
+function buildFluxPrompt(char, scene, extra) {
+    var p = "Single person character portrait. ";
+    p += "A " + scene.style + " " + scene.framing + " capturing a single, solitary " + char.age + " " + char.gender + ". ";
+    p += "The subject is alone. "; 
+    p += "The subject has " + char.nation + " characteristics. ";
+    p += "Their body is " + char.build + " with " + char.shape + ". ";
+    p += "They have " + char.skin + " and " + char.hairC + " " + char.hairS + ". ";
+    p += "Their eyes are " + char.eyes + ". ";
+    
+    if (char.celebPrompt) {
+        p += "The facial structure resembles a " + char.celebPrompt + ". ";
+    }
+
+    p += "The character is wearing " + scene.attire + ". ";
+    p += "They are looking at the camera with a " + scene.expression + ". ";
+    p += "The camera angle is " + scene.angle + ". ";
+
+    if (extra && extra.trim() !== "") {
+        p += "Additional details: " + extra + ".";
+    }
+    
+    return p;
+}
+
+function buildSDXLPrompt(char, scene, extra) {
+    var soloTag = getSubjectTag(char.gender);
+
+    var p = soloTag + ", " + scene.style + ", " + scene.framing + ", " + scene.angle + ", ";
+    
+    p += char.gender + ", " + char.age + ", " + char.nation + ", ";
+    p += "body type " + char.build + ", " + char.shape + ", ";
+    p += "skin texture " + char.skin + ", ";
+    p += char.hairC + " " + char.hairS + ", " + char.eyes + " eyes, ";
+    
+    if (char.celebPrompt) {
+        p += "face mix " + char.celebPrompt + ", ";
+    }
+
+    p += "wearing " + scene.attire + ", ";
+    p += scene.expression + ", ";
+
+    if (extra && extra.trim() !== "") {
+        p += extra + ", ";
+    }
+
+    p += "masterpiece, best quality, highly detailed, sharp focus, 8k, uhd, dslr, soft lighting, film grain.";
+    return p;
+}
+
+// --- EXECUTION ---
+
+console.log("Starting Generation...");
+
+// Capture User Config at start
+const initialConfig = Object.assign({}, pipeline.configuration);
+
+// Force safe defaults for Text-to-Image
+initialConfig.batchCount = 1; 
+initialConfig.strength = 1.0; 
+
+// 1. Generate Static Character Data if required
+let staticCharData = null;
+if (selections.keepConstant) {
+    staticCharData = generateCharacterData();
+    console.log("Character DNA Locked.");
+}
+
+// 2. Generation Loop
+for (let i = 0; i < selections.batchCount; i++) {
+    
+    // -- Step A: Base Generation (Txt2Img) --
+    
+    var charData = selections.keepConstant ? staticCharData : generateCharacterData();
+    var sceneData = generateSceneContext();
+
+    var finalPrompt = "";
+    if (selections.promptLogic === 0) {
+        finalPrompt = buildFluxPrompt(charData, sceneData, selections.extraPrompt);
+    } else {
+        finalPrompt = buildSDXLPrompt(charData, sceneData, selections.extraPrompt);
+    }
+
+    console.log("Generating Base Image " + (i + 1) + "/" + selections.batchCount);
+    console.log("Prompt: " + finalPrompt);
+    
+    // We clone the initial config every loop to ensure no pollution from the Skin Pass
+    var currentConfig = Object.assign({}, initialConfig);
+    currentConfig.seed = Math.floor(Math.random() * 4294967295);
+    
+    pipeline.run({
+        prompt: finalPrompt,
+        negativePrompt: "multiple people, crowd, group, extra people, ugly, deformed, disfigured, low quality, blurry, text, watermark, bad anatomy, extra limbs, fused fingers, bad hands, missing fingers, mutated hands, poorly drawn face, mutation, gross proportions, malformed limbs, missing arms, missing legs, extra arms, extra legs, fused fingers, too many fingers, long neck, picture, cartoon, anime",
+        configuration: currentConfig
+    });
+
+    // -- Step B: Skin Enhancement Pass (Img2Img) --
+    
+    if (selections.runSkinPass) {
+        console.log("Running Skin Enhancement Pass (Strength: " + selections.skinStrength + ")...");
+        
+        try {
+            // Ensure models are available
+            pipeline.downloadBuiltins([
+                "skin_supreme_jibmixrealisticxl_v180_f16.ckpt",
+                "add_detail_sdxl_lora_f16.ckpt",
+                "spo_sdxl___improved_aesthetics_lora_f16.ckpt",
+                "skin_texture_style_v4_lora_f16.ckpt",
+                "4x_ultrasharp_f16.ckpt"
+            ]);
+
+            // Create Skin Config by CLONING the base config first
+            var skinConfig = Object.assign({}, currentConfig);
+
+            // Apply specific Skin Pass Overrides
+            skinConfig.model = "skin_supreme_jibmixrealisticxl_v180_f16.ckpt";
+            
+            // Explicitly set LoRAs for Skin Pass
+            skinConfig.loras = [
+                { file: "add_detail_sdxl_lora_f16.ckpt", weight: 0.38 },
+                { file: "spo_sdxl___improved_aesthetics_lora_f16.ckpt", weight: 0.60 },
+                { file: "skin_texture_style_v4_lora_f16.ckpt", weight: 0.32 }
+            ];
+
+            // Explicitly clear Controls to prevent id errors
+            skinConfig.controls = [];
+
+            // Apply requested settings
+            skinConfig.steps = 16;
+            skinConfig.sampler = 12; // DPM++ 2M Karras
+            skinConfig.guidanceScale = 5;
+            skinConfig.clipSkip = 2;
+            skinConfig.strength = selections.skinStrength;
+            skinConfig.seed = currentConfig.seed; // Reuse seed for consistency
+            
+            skinConfig.negativeOriginalImageWidth = 512;
+            skinConfig.negativeOriginalImageHeight = 512;
+            skinConfig.upscaler = "4x_ultrasharp_f16.ckpt";
+            skinConfig.upscalerScaleFactor = 0;
+            skinConfig.zeroNegativePrompt = true;
+
+            // Run Skin Pass
+            pipeline.run({
+                prompt: finalPrompt, // Keep original prompt context
+                negativePrompt: "", 
+                configuration: skinConfig
+            });
+            
+            console.log("Skin Pass Complete.");
+        } catch (e) {
+            console.log("Skin Pass Failed: " + e);
+        }
+    }
+}
+
+console.log("Job Complete.");
